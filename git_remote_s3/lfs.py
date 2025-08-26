@@ -77,7 +77,15 @@ class LFSProcess:
             session = boto3.Session()
         else:
             session = boto3.Session(profile_name=self.profile)
-        s3 = session.resource("s3")
+
+        # Read the AWS_ENDPOINT environment variable
+        endpoint = os.environ.get('AWS_ENDPOINT')
+
+        # Create the S3 resource with the custom endpoint_url
+        if endpoint:
+            s3 = session.resource("s3", endpoint_url=endpoint)
+        else:
+            s3 = session.resource("s3")
         self.s3_bucket = s3.Bucket(self.bucket)
 
     def upload(self, event: dict):
@@ -197,7 +205,8 @@ def main():  # noqa: C901
                 sys.stdout.flush()
                 sys.exit(1)
             result = subprocess.run(
-                ["git", "remote", "get-url", event["remote"]],
+                # ["git", "remote", "get-url", event["remote"]],
+                ["git", "config", "--get", "lfs.url"],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
             )
