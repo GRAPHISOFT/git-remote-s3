@@ -78,8 +78,24 @@ class LFSProcess:
         else:
             session = boto3.Session(profile_name=self.profile)
 
-        # Read the AWS_ENDPOINT environment variable
-        endpoint = os.environ.get('AWS_ENDPOINT')
+        # Read the aws server url from git config "lfs.endpoint"
+        result = subprocess.run(
+            ["git", "config", "--get", "lfs.endpoint"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        if result.returncode != 0:
+            logger.error(result.stderr.decode("utf-8").strip())
+            error_event = {
+                "error": {
+                    "code": 2,
+                    "message": "cannot read lfs.endpoint from git config",
+                }
+            }
+            sys.stdout.write(f"{json.dumps(error_event)}")
+            sys.stdout.flush()
+            sys.exit(1)
+        endpoint = result.stdout.decode("utf-8").strip()
 
         # Create the S3 resource with the custom endpoint_url
         if endpoint:
