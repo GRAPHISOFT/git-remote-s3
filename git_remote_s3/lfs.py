@@ -156,9 +156,9 @@ class LFSProcess:
         sys.stdout.flush()
 
 
-def install():
+def install(install_global = False):
     result = subprocess.run(
-        ["git", "config", "--add", "lfs.customtransfer.git-lfs-s3.path", "git-lfs-s3"],
+        ["git", "config", "--global" if install_global else "--add", "lfs.customtransfer.git-lfs-s3.path", "git-lfs-s3"],
         stderr=subprocess.PIPE,
     )
     if result.returncode != 0:
@@ -166,7 +166,7 @@ def install():
         sys.stderr.flush()
         sys.exit(1)
     result = subprocess.run(
-        ["git", "config", "--add", "lfs.standalonetransferagent", "git-lfs-s3"],
+        ["git", "config", "--global" if install_global else "--add", "lfs.http://s3///.standalonetransferagent" if install_global else "lfs.standalonetransferagent", "git-lfs-s3"],
         stderr=subprocess.PIPE,
     )
     if result.returncode != 0:
@@ -182,6 +182,9 @@ def main():  # noqa: C901
     if len(sys.argv) > 1:
         if "install" == sys.argv[1]:
             install()
+            sys.exit(0)
+        elif "glinstall" == sys.argv[1]:
+            install(install_global=True)
             sys.exit(0)
         elif "debug" == sys.argv[1]:
             logger.setLevel(logging.DEBUG)
