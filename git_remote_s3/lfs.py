@@ -11,6 +11,7 @@ import threading
 import os
 from .common import parse_git_url
 from .git import validate_ref_name
+from urllib.parse import urlparse
 
 if "lfs" in __name__:
     logging.basicConfig(
@@ -220,24 +221,38 @@ def main():  # noqa: C901
                 sys.stdout.write("{}\n")
                 sys.stdout.flush()
                 sys.exit(1)
+
+            # try to get lfs.url from config
             result = subprocess.run(
-                # ["git", "remote", "get-url", event["remote"]],
                 ["git", "config", "--get", "lfs.url"],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
             )
-            if result.returncode != 0:
-                logger.error(result.stderr.decode("utf-8").strip())
-                error_event = {
-                    "error": {
-                        "code": 2,
-                        "message": f"cannot resolve remote \"{event['remote']}\"",
+            if result.returncode != 0: # if lfs.url isn't specified (we try to conclude it using remote's url)
+                result = subprocess.run(
+                    ["git", "remote", "get-url", event["remote"]],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                )
+                if result.returncode != 0:
+                    logger.error(result.stderr.decode("utf-8").strip())
+                    error_event = {
+                        "error": {
+                            "code": 2,
+                            "message": f"lfs.url isn't specified and cannot resolve remote \"{event['remote']}\"",
+                        }
                     }
-                }
-                sys.stdout.write(f"{json.dumps(error_event)}")
-                sys.stdout.flush()
-                sys.exit(1)
-            s3uri = result.stdout.decode("utf-8").strip()
+                    sys.stdout.write(f"{json.dumps(error_event)}")
+                    sys.stdout.flush()
+                    sys.exit(1)
+                remote_url = result.stdout.decode("utf-8").strip()
+                parsed_url = urlparse(remote_url)
+                path = parsed_url.path
+                repo_name = os.path.basename(path) # extract file name from url and use it as repo
+                bucket_name = os.path.splitext(repo_name)[0] # take file name without extension and use it as bucket
+                s3uri = f"s3://{bucket_name}/{repo_name}"
+            else: # lfs.url was found
+                s3uri = result.stdout.decode("utf-8").strip()
             lfs_process = LFSProcess(s3uri=s3uri)
 
         elif event["event"] == "upload":
