@@ -175,7 +175,7 @@ def install(install_global = False):
     result = subprocess.run(
         ["git", "config", "--global" if install_global else "--add",
          "lfs.http://s3///.standalonetransferagent" if install_global else "lfs.standalonetransferagent",
-         "git-lfs-s3 # git-lfs filtering rules need our s3://... urls to be defined in the form: http(s)://s3///. So, consider this upon change." if install_global else "git-lfs-s3"],
+         "git-lfs-s3"],
         stderr=subprocess.PIPE,
     )
     if result.returncode != 0:
