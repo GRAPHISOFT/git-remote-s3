@@ -79,9 +79,9 @@ class LFSProcess:
         else:
             session = boto3.Session(profile_name=self.profile)
 
-        # Read the aws server url from git config "lfs.endpoint"
+        # Read the aws server url from git config "lfs.awsendpoint"
         result = subprocess.run(
-            ["git", "config", "--get", "lfs.endpoint"],
+            ["git", "config", "--get", "lfs.awsendpoint"],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
         )
@@ -90,7 +90,7 @@ class LFSProcess:
             error_event = {
                 "error": {
                     "code": 2,
-                    "message": "cannot read lfs.endpoint from git config",
+                    "message": "cannot read lfs.awsendpoint from git config",
                 }
             }
             sys.stdout.write(f"{json.dumps(error_event)}")
@@ -165,8 +165,17 @@ def install(install_global = False):
         sys.stderr.write(result.stderr.decode("utf-8").strip())
         sys.stderr.flush()
         sys.exit(1)
+    #
+    # Here, we had to use a slightly awkward syntax because git-lfs only accepts
+    # http(s) urls to filter configuration values for custom transfer agent urls.
+    # As we have to use an s3:// url to access our AWS server,
+    # this can be only defined in git-lfs filters in the form http://s3///
+    # ensuring the proper config value to be found among global configs.
+    #
     result = subprocess.run(
-        ["git", "config", "--global" if install_global else "--add", "lfs.http://s3///.standalonetransferagent" if install_global else "lfs.standalonetransferagent", "git-lfs-s3"],
+        ["git", "config", "--global" if install_global else "--add",
+         "lfs.http://s3///.standalonetransferagent" if install_global else "lfs.standalonetransferagent",
+         "git-lfs-s3 # git-lfs filtering rules need our s3://... urls to be defined in the form: http(s)://s3///. So, consider this upon change." if install_global else "git-lfs-s3"],
         stderr=subprocess.PIPE,
     )
     if result.returncode != 0:
