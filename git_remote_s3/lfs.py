@@ -192,7 +192,7 @@ def install(install_global = False):
     # lfs.url setting. However, before initial clone of a repository this value cannot
     # be preset locally as there is no repo yet. Moreover, it cannot be preset globally
     # either, because its value is repo dependent. So, the workaround is that we provide
-    # the fake value globally before the inital clone, to tell git LFS to use git-lfs-s3
+    # the fake value globally before the initial clone, to tell git LFS to use git-lfs-s3
     # on machines where the fake value has been set, and get large files from the
     # working (default) url at clone.
     #
@@ -212,7 +212,7 @@ def install(install_global = False):
     sys.stdout.flush()
 
 
-def concludeS3Url(event: dict) -> str:
+def inferS3Url(event: dict) -> str:
     result = subprocess.run(
         ["git", "remote", "get-url", event["remote"]],
         stdout=subprocess.PIPE,
@@ -232,8 +232,8 @@ def concludeS3Url(event: dict) -> str:
     remote_url = result.stdout.decode("utf-8").strip()
     parsed_url = urlparse(remote_url)
     path = parsed_url.path
-    repo_name = os.path.basename(path)  # extract file name from url and use it as repo
-    bucket_name = os.path.splitext(repo_name)[0]  # take file name without extension and use it as bucket
+    repo_name = os.path.basename(path)  # extract last component from url path and use it as repo
+    bucket_name = os.path.splitext(repo_name)[0]  # remove optional .git extension and use it as bucket
     return f"s3://{bucket_name}/{repo_name}"
 
 
@@ -290,12 +290,12 @@ def main():  # noqa: C901
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
             )
-            if result.returncode != 0: # if lfs.url isn't specified (we try to conclude it using remote's url)
-                s3uri = concludeS3Url(event)
+            if result.returncode != 0: # if lfs.url isn't specified (we try to infer it using remote's url)
+                s3uri = inferS3Url(event)
             else: # lfs.url was found
                 url_value = result.stdout.decode("utf-8").strip()
-                if url_value == "s3://": # the fake value was provided (we try to conclude it using remote's url)
-                    s3uri = concludeS3Url(event)
+                if url_value == "s3://": # the fake value was provided (we try to infer it using remote's url)
+                    s3uri = inferS3Url(event)
                 else: # We have found a valid value in lfs.url
                     s3uri = url_value
             lfs_process = LFSProcess(s3uri=s3uri)
