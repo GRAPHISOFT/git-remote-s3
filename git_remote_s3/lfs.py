@@ -86,11 +86,11 @@ class LFSProcess:
             stderr=subprocess.PIPE,
         )
         if result.returncode != 0:
-            logger.error(result.stderr.decode("utf-8").strip())
+            logger.error(f"lfs.awsendpoint isn't specified and cannot read from git config! result: {result.stderr.decode('utf-8').strip()}")
             error_event = {
                 "error": {
-                    "code": 2,
-                    "message": "cannot read lfs.awsendpoint from git config",
+                    "code": 33,
+                    "message": "lfs.awsendpoint isn't specified and cannot read from git config",
                 }
             }
             sys.stdout.write(f"{json.dumps(error_event)}")
@@ -219,11 +219,11 @@ def inferS3Url(event: dict) -> str:
         stderr=subprocess.PIPE,
     )
     if result.returncode != 0:
-        logger.error(result.stderr.decode("utf-8").strip())
+        logger.error(f"lfs.url isn't specified and cannot resolve remote '{event['remote']}'! result: {result.stderr.decode('utf-8').strip()}")
         error_event = {
             "error": {
-                "code": 2,
-                "message": f"lfs.url isn't specified and cannot resolve remote \"{event['remote']}\"",
+                "code": 34,
+                "message": f"lfs.url isn't specified and cannot resolve remote '{event['remote']}'",
             }
         }
         sys.stdout.write(f"{json.dumps(error_event)}")
@@ -280,7 +280,13 @@ def main():  # noqa: C901
             # already have validated the origin name
             if not validate_ref_name(event["remote"]):
                 logger.error(f"invalid ref {event['remote']}")
-                sys.stdout.write("{}\n")
+                error_event = {
+                    "error": {
+                        "code": 35,
+                        "message": f"invalid ref {event['remote']}",
+                    }
+                }
+                sys.stdout.write(f"{json.dumps(error_event)}")
                 sys.stdout.flush()
                 sys.exit(1)
 
