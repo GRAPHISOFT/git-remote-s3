@@ -169,12 +169,12 @@ def install(install_global = False):
     # Here, we had to use a slightly awkward syntax because git-lfs only accepts
     # http(s) urls to filter configuration values for custom transfer agent urls.
     # As we have to use an s3:// url to access our AWS server,
-    # this can be only defined in git-lfs filters in the form http://s3///
+    # this can be only defined in git-lfs filters in the form https://s3///
     # ensuring the proper config value to be found among global configs.
     #
     result = subprocess.run(
         ["git", "config", "--global" if install_global else "--add",
-         "lfs.http://s3///.standalonetransferagent" if install_global else "lfs.standalonetransferagent",
+         "lfs.https://s3///.standalonetransferagent" if install_global else "lfs.standalonetransferagent",
          "git-lfs-s3"],
         stderr=subprocess.PIPE,
     )
