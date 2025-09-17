@@ -104,7 +104,7 @@ class LFSProcess:
             self.init_s3_bucket()
             if list(
                 self.s3_bucket.objects.filter(
-                    Prefix=f"{self.prefix}/lfs/{event['oid']}"
+                    Prefix=f"{self.prefix}/{event['oid']}"
                 )
             ):
                 logger.debug("object already exists")
@@ -115,7 +115,7 @@ class LFSProcess:
                 return
             self.s3_bucket.upload_file(
                 event["path"],
-                f"{self.prefix}/lfs/{event['oid']}",
+                f"{self.prefix}/{event['oid']}",
                 Callback=ProgressPercentage(event["oid"]),
             )
             sys.stdout.write(
@@ -132,7 +132,7 @@ class LFSProcess:
             self.init_s3_bucket()
             temp_dir = os.path.abspath(".git/lfs/tmp")
             self.s3_bucket.download_file(
-                Key=f"{self.prefix}/lfs/{event['oid']}",
+                Key=f"{self.prefix}/{event['oid']}",
                 Filename=f"{temp_dir}/{event['oid']}",
                 Callback=ProgressPercentage(event["oid"]),
             )
