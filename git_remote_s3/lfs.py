@@ -53,16 +53,18 @@ def write_error_event(*, oid: str, error: str, flush=False):
         sys.stdout.flush()
 
 
+def write_error_event_with_code(code: int, error_message: str):
+    logger.error(error_message)
+    error_event = { "error": { "code": code, "message": error_message } }
+    sys.stdout.write(f"{json.dumps(error_event)}\n")
+    sys.stdout.flush()
+
+
 class LFSProcess:
     def __init__(self, s3uri: str):
         uri_scheme, profile, bucket, prefix = parse_git_url(s3uri)
         if bucket is None or prefix is None:
-            logger.error(f"s3 uri {s3uri} is invalid")
-            error_event = {
-                "error": {"code": 32, "message": f"s3 uri {s3uri} is invalid"}
-            }
-            sys.stdout.write(f"{json.dumps(error_event)}\n")
-            sys.stdout.flush()
+            write_error_event_with_code(32, f"s3 uri {s3uri} is invalid")
             return
         self.prefix = prefix
         self.bucket = bucket
@@ -86,16 +88,7 @@ class LFSProcess:
             stderr=subprocess.PIPE,
         )
         if result.returncode != 0:
-            logger.error(f"lfs.awsendpoint isn't specified and cannot read from git config! result: {result.stderr.decode('utf-8').strip()}")
-            error_event = {
-                "error": {
-                    "code": 33,
-                    "message": "lfs.awsendpoint isn't specified and cannot read from git config",
-                }
-            }
-            sys.stdout.write(f"{json.dumps(error_event)}")
-            sys.stdout.flush()
-            sys.exit(1)
+            raise Exception(f"lfs.awsendpoint isn't specified and cannot read from git config!")
         endpoint = result.stdout.decode("utf-8").strip()
 
         # Create the S3 resource with the custom endpoint_url
@@ -219,15 +212,7 @@ def inferS3Url(event: dict) -> str:
         stderr=subprocess.PIPE,
     )
     if result.returncode != 0:
-        logger.error(f"lfs.url isn't specified and cannot resolve remote '{event['remote']}'! result: {result.stderr.decode('utf-8').strip()}")
-        error_event = {
-            "error": {
-                "code": 34,
-                "message": f"lfs.url isn't specified and cannot resolve remote '{event['remote']}'",
-            }
-        }
-        sys.stdout.write(f"{json.dumps(error_event)}")
-        sys.stdout.flush()
+        write_error_event_with_code(32, f"lfs.url isn't specified and cannot resolve remote '{event['remote']}'!")
         sys.exit(1)
     remote_url = result.stdout.decode("utf-8").strip()
     parsed_url = urlparse(remote_url)
@@ -279,15 +264,7 @@ def main():  # noqa: C901
             # This is just another precaution but not strictly necessary since git would
             # already have validated the origin name
             if not validate_ref_name(event["remote"]):
-                logger.error(f"invalid ref {event['remote']}")
-                error_event = {
-                    "error": {
-                        "code": 35,
-                        "message": f"invalid ref {event['remote']}",
-                    }
-                }
-                sys.stdout.write(f"{json.dumps(error_event)}")
-                sys.stdout.flush()
+                write_error_event_with_code(3, f"invalid ref {event['remote']}")
                 sys.exit(1)
 
             # try to get lfs.url from config
