@@ -218,7 +218,7 @@ def inferS3Url(event: dict) -> str:
     parsed_url = urlparse(remote_url)
     path = parsed_url.path
     repo_name = os.path.basename(path)  # extract last component from url path and use it as repo
-    bucket_name = os.path.splitext(repo_name)[0]  # remove optional .git extension and use it as bucket
+    bucket_name = os.path.splitext(repo_name)[0].lower()  # remove optional .git extension and use it as bucket
     return f"s3://{bucket_name}/{repo_name}"
 
 
