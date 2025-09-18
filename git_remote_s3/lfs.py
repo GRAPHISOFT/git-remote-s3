@@ -131,6 +131,7 @@ class LFSProcess:
         try:
             self.init_s3_bucket()
             temp_dir = os.path.abspath(".git/lfs/tmp")
+            os.makedirs(temp_dir, exist_ok=True)
             self.s3_bucket.download_file(
                 Key=f"{self.prefix}/{event['oid']}",
                 Filename=f"{temp_dir}/{event['oid']}",
