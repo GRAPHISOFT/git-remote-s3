@@ -217,8 +217,13 @@ def inferS3Url(event: dict) -> str:
         sys.exit(1)
     remote_url = result.stdout.decode("utf-8").strip()
     parsed_url = urlparse(remote_url)
-    path = parsed_url.path
-    repo_name = os.path.basename(path)  # extract last component from url path and use it as repo
+    path = parsed_url.path or ""
+    if path.endswith("/"):
+        path = path.rstrip("/")  # remove any trailing slashes so basename works
+    repo_name = os.path.basename(path) # extract last component from url path and use it as repo name
+    if not repo_name:
+        write_error_event_with_code(32, f"cannot infer repository name from remote url '{remote_url}'")
+        sys.exit(1)
     bucket_name = os.path.splitext(repo_name)[0].lower()  # remove optional .git extension and use it as bucket
     return f"s3://{bucket_name}/{repo_name}"
 
