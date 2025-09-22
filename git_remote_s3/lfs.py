@@ -11,6 +11,7 @@ import threading
 import os
 from .common import parse_git_url
 from .git import validate_ref_name
+from urllib.parse import urlparse
 
 if "lfs" in __name__:
     logging.basicConfig(
@@ -52,16 +53,18 @@ def write_error_event(*, oid: str, error: str, flush=False):
         sys.stdout.flush()
 
 
+def write_error_event_with_code(code: int, error_message: str):
+    logger.error(error_message)
+    error_event = { "error": { "code": code, "message": error_message } }
+    sys.stdout.write(f"{json.dumps(error_event)}\n")
+    sys.stdout.flush()
+
+
 class LFSProcess:
     def __init__(self, s3uri: str):
         uri_scheme, profile, bucket, prefix = parse_git_url(s3uri)
         if bucket is None or prefix is None:
-            logger.error(f"s3 uri {s3uri} is invalid")
-            error_event = {
-                "error": {"code": 32, "message": f"s3 uri {s3uri} is invalid"}
-            }
-            sys.stdout.write(f"{json.dumps(error_event)}\n")
-            sys.stdout.flush()
+            write_error_event_with_code(32, f"s3 uri {s3uri} is invalid")
             return
         self.prefix = prefix
         self.bucket = bucket
@@ -78,8 +81,15 @@ class LFSProcess:
         else:
             session = boto3.Session(profile_name=self.profile)
 
-        # Read the AWS_ENDPOINT environment variable
-        endpoint = os.environ.get('AWS_ENDPOINT')
+        # Read the aws server url from git config "lfs.awsendpoint"
+        result = subprocess.run(
+            ["git", "config", "--get", "lfs.awsendpoint"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        if result.returncode != 0:
+            raise Exception(f"lfs.awsendpoint isn't specified and cannot read from git config!")
+        endpoint = result.stdout.decode("utf-8").strip()
 
         # Create the S3 resource with the custom endpoint_url
         if endpoint:
@@ -94,7 +104,7 @@ class LFSProcess:
             self.init_s3_bucket()
             if list(
                 self.s3_bucket.objects.filter(
-                    Prefix=f"{self.prefix}/lfs/{event['oid']}"
+                    Prefix=f"{self.prefix}/{event['oid']}"
                 )
             ):
                 logger.debug("object already exists")
@@ -105,7 +115,7 @@ class LFSProcess:
                 return
             self.s3_bucket.upload_file(
                 event["path"],
-                f"{self.prefix}/lfs/{event['oid']}",
+                f"{self.prefix}/{event['oid']}",
                 Callback=ProgressPercentage(event["oid"]),
             )
             sys.stdout.write(
@@ -121,8 +131,9 @@ class LFSProcess:
         try:
             self.init_s3_bucket()
             temp_dir = os.path.abspath(".git/lfs/tmp")
+            os.makedirs(temp_dir, exist_ok=True)
             self.s3_bucket.download_file(
-                Key=f"{self.prefix}/lfs/{event['oid']}",
+                Key=f"{self.prefix}/{event['oid']}",
                 Filename=f"{temp_dir}/{event['oid']}",
                 Callback=ProgressPercentage(event["oid"]),
             )
@@ -139,17 +150,26 @@ class LFSProcess:
         sys.stdout.flush()
 
 
-def install():
+def install(install_global = False):
     result = subprocess.run(
-        ["git", "config", "--add", "lfs.customtransfer.git-lfs-s3.path", "git-lfs-s3"],
+        ["git", "config", "--global" if install_global else "--add", "lfs.customtransfer.git-lfs-s3.path", "git-lfs-s3"],
         stderr=subprocess.PIPE,
     )
     if result.returncode != 0:
         sys.stderr.write(result.stderr.decode("utf-8").strip())
         sys.stderr.flush()
         sys.exit(1)
+    #
+    # Here, we had to use a slightly awkward syntax because git-lfs only accepts
+    # http(s) urls to filter configuration values for custom transfer agent urls.
+    # As we have to use an s3:// url to access our AWS server,
+    # this can be only defined in git-lfs filters in the form https://s3///
+    # ensuring the proper config value to be found among global configs.
+    #
     result = subprocess.run(
-        ["git", "config", "--add", "lfs.standalonetransferagent", "git-lfs-s3"],
+        ["git", "config", "--global" if install_global else "--add",
+         "lfs.https://s3///.standalonetransferagent" if install_global else "lfs.standalonetransferagent",
+         "git-lfs-s3"],
         stderr=subprocess.PIPE,
     )
     if result.returncode != 0:
@@ -157,14 +177,64 @@ def install():
         sys.stderr.flush()
         sys.exit(1)
 
+    #
+    # Here, we had to define a fake lfs.url configuration globally with value s3://
+    # The lfs.py on init will read the filtered configuration values. If lfs.url is
+    # not provided, or it is provided, but contains this fake value, the init will
+    # take the default value instead of using the setting. This is needed as git LFS
+    # uses the git-lfs-s3 custom transfer agent only if an s3 url is provided in the
+    # lfs.url setting. However, before initial clone of a repository this value cannot
+    # be preset locally as there is no repo yet. Moreover, it cannot be preset globally
+    # either, because its value is repo dependent. So, the workaround is that we provide
+    # the fake value globally before the initial clone, to tell git LFS to use git-lfs-s3
+    # on machines where the fake value has been set, and get large files from the
+    # working (default) url at clone.
+    #
+    if install_global:
+        result = subprocess.run(
+            ["git", "config", "--global",
+             "lfs.url",
+             "s3://"],
+            stderr=subprocess.PIPE,
+        )
+        if result.returncode != 0:
+            sys.stderr.write(result.stderr.decode("utf-8").strip())
+            sys.stderr.flush()
+            sys.exit(1)
+
     sys.stdout.write("git-lfs-s3 installed\n")
     sys.stdout.flush()
+
+
+def inferS3Url(event: dict) -> str:
+    result = subprocess.run(
+        ["git", "remote", "get-url", event["remote"]],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    if result.returncode != 0:
+        write_error_event_with_code(32, f"lfs.url isn't specified and cannot resolve remote '{event['remote']}'!")
+        sys.exit(1)
+    remote_url = result.stdout.decode("utf-8").strip()
+    parsed_url = urlparse(remote_url)
+    path = parsed_url.path or ""
+    if path.endswith("/"):
+        path = path.rstrip("/")  # remove any trailing slashes so basename works
+    repo_name = os.path.basename(path) # extract last component from url path and use it as repo name
+    if not repo_name:
+        write_error_event_with_code(32, f"cannot infer repository name from remote url '{remote_url}'")
+        sys.exit(1)
+    bucket_name = os.path.splitext(repo_name)[0].lower()  # remove optional .git extension and use it as bucket
+    return f"s3://{bucket_name}/{repo_name}"
 
 
 def main():  # noqa: C901
     if len(sys.argv) > 1:
         if "install" == sys.argv[1]:
             install()
+            sys.exit(0)
+        elif "glinstall" == sys.argv[1]:
+            install(install_global=True)
             sys.exit(0)
         elif "debug" == sys.argv[1]:
             logger.setLevel(logging.DEBUG)
@@ -200,28 +270,23 @@ def main():  # noqa: C901
             # This is just another precaution but not strictly necessary since git would
             # already have validated the origin name
             if not validate_ref_name(event["remote"]):
-                logger.error(f"invalid ref {event['remote']}")
-                sys.stdout.write("{}\n")
-                sys.stdout.flush()
+                write_error_event_with_code(3, f"invalid ref {event['remote']}")
                 sys.exit(1)
+
+            # try to get lfs.url from config
             result = subprocess.run(
-                # ["git", "remote", "get-url", event["remote"]],
                 ["git", "config", "--get", "lfs.url"],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
             )
-            if result.returncode != 0:
-                logger.error(result.stderr.decode("utf-8").strip())
-                error_event = {
-                    "error": {
-                        "code": 2,
-                        "message": f"cannot resolve remote \"{event['remote']}\"",
-                    }
-                }
-                sys.stdout.write(f"{json.dumps(error_event)}")
-                sys.stdout.flush()
-                sys.exit(1)
-            s3uri = result.stdout.decode("utf-8").strip()
+            if result.returncode != 0: # if lfs.url isn't specified (we try to infer it using remote's url)
+                s3uri = inferS3Url(event)
+            else: # lfs.url was found
+                url_value = result.stdout.decode("utf-8").strip()
+                if url_value == "s3://": # the fake value was provided (we try to infer it using remote's url)
+                    s3uri = inferS3Url(event)
+                else: # We have found a valid value in lfs.url
+                    s3uri = url_value
             lfs_process = LFSProcess(s3uri=s3uri)
 
         elif event["event"] == "upload":
