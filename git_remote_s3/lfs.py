@@ -152,7 +152,7 @@ class LFSProcess:
 
 def install(install_global = False):
     result = subprocess.run(
-        ["git", "config", "--global" if install_global else "--add", "lfs.customtransfer.git-lfs-s3.path", "git-lfs-s3"],
+        ["git", "config", "--global" if install_global else "--add", "lfs.customtransfer.gs-lfs.path", "gs-lfs"],
         stderr=subprocess.PIPE,
     )
     if result.returncode != 0:
@@ -169,7 +169,7 @@ def install(install_global = False):
     result = subprocess.run(
         ["git", "config", "--global" if install_global else "--add",
          "lfs.https://s3///.standalonetransferagent" if install_global else "lfs.standalonetransferagent",
-         "git-lfs-s3"],
+         "gs-lfs"],
         stderr=subprocess.PIPE,
     )
     if result.returncode != 0:
@@ -182,11 +182,11 @@ def install(install_global = False):
     # The lfs.py on init will read the filtered configuration values. If lfs.url is
     # not provided, or it is provided, but contains this fake value, the init will
     # take the default value instead of using the setting. This is needed as git LFS
-    # uses the git-lfs-s3 custom transfer agent only if an s3 url is provided in the
+    # uses the gs-lfs custom transfer agent only if an s3 url is provided in the
     # lfs.url setting. However, before initial clone of a repository this value cannot
     # be preset locally as there is no repo yet. Moreover, it cannot be preset globally
     # either, because its value is repo dependent. So, the workaround is that we provide
-    # the fake value globally before the initial clone, to tell git LFS to use git-lfs-s3
+    # the fake value globally before the initial clone, to tell git LFS to use gs-lfs
     # on machines where the fake value has been set, and get large files from the
     # working (default) url at clone.
     #
@@ -202,7 +202,7 @@ def install(install_global = False):
             sys.stderr.flush()
             sys.exit(1)
 
-    sys.stdout.write("git-lfs-s3 installed\n")
+    sys.stdout.write("gs-lfs installed\n")
     sys.stdout.flush()
 
 
@@ -244,7 +244,7 @@ def main():  # noqa: C901
                     "git",
                     "config",
                     "--add",
-                    "lfs.customtransfer.git-lfs-s3.args",
+                    "lfs.customtransfer.gs-lfs.args",
                     "debug",
                 ]
             )
@@ -252,7 +252,7 @@ def main():  # noqa: C901
             sys.exit(0)
         elif "disable-debug" == sys.argv[1]:
             subprocess.run(
-                ["git", "config", "--unset", "lfs.customtransfer.git-lfs-s3.args"]
+                ["git", "config", "--unset", "lfs.customtransfer.gs-lfs.args"]
             )
             print("debug disabled")
             sys.exit(0)
@@ -262,7 +262,7 @@ def main():  # noqa: C901
 
     lfs_process = None
     while True:
-        logger.debug("git-lfs-s3 starting")
+        logger.debug("gs-lfs starting")
         line = sys.stdin.readline()
         logger.debug(line)
         event = json.loads(line)

@@ -1,7 +1,7 @@
 [project]
-name = "git-remote-s3"
+name = "gs-lfs"
 version = "0.2.6"
-description = "A git remote helper for Amazon S3"
+description = "A git LFS custom transfer agent for backends implementing the S3 protocol"
 license = "Apache-2.0"
 readme = "README.md"
 requires-python = ">3.9"
@@ -14,10 +14,7 @@ dependencies = [
 repository = "https://github.com/GRAPHISOFT/git-remote-s3"
 
 [project.scripts]
-git-remote-s3 = "git_remote_s3.remote:main"
-"git-remote-s3+zip" = "git_remote_s3.remote:main"
-git-lfs-s3 = "git_remote_s3.lfs:main"
-git-s3 = "git_remote_s3.manage:main"
+gs-lfs = "git_remote_s3.lfs:main"
 
 [dependency-groups]
 dev = [
