@@ -369,7 +369,7 @@ GIT_REMOTE_S3_VERBOSE=1 git push origin main
 
 Logs will be put to stderr.
 
-For LFS operations you can enable and disable debug logging via `gs-lfs enable-debug` and `gs-lfs disable-debug` respectively. Logs are put in `.git/lfs/tmp/git-lfs-s3.log` in the repo.
+For LFS operations you can enable and disable debug logging via `gs-lfs enable-debug` and `gs-lfs disable-debug` respectively. Logs are put in `.git/lfs/tmp/gs-lfs.log` in the repo.
 
 ## Credits
 

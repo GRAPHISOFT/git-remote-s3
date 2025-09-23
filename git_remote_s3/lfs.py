@@ -17,7 +17,7 @@ if "lfs" in __name__:
     logging.basicConfig(
         level=logging.ERROR,
         format="%(asctime)s - %(levelname)s - %(process)d - %(message)s",
-        filename=".git/lfs/tmp/git-lfs-s3.log",
+        filename=".git/lfs/tmp/gs-lfs.log",
     )
 
 logger = logging.getLogger(__name__)
