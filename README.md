@@ -233,14 +233,14 @@ To use LFS you need to first install git-lfs. You can refer to the [official doc
 Next, you need enable the S3 integration by running the following command in the repo folder:
 
 ```bash
-git-lfs-s3 install
+gs-lfs install
 ```
 
 which is a short cut for:
 
 ```bash
-git config --add lfs.customtransfer.git-lfs-s3.path git-lfs-s3
-git config --add lfs.standalonetransferagent git-lfs-s3
+git config --add lfs.customtransfer.gs-lfs.path gs-lfs
+git config --add lfs.standalonetransferagent gs-lfs
 ```
 
 ### Creating the repo and pushing
@@ -252,7 +252,7 @@ mkdir lfs-repo
 cd lfs-repo
 git init
 git lfs install
-git-lfs-s3 install
+gs-lfs install
 git lfs track "*.tiff"
 git add .gitattributes
 <put file.tiff in the repo>
@@ -278,7 +278,7 @@ To fix:
 
 ```bash
 cd lfs-repo-clone
-git-lfs-s3 install
+gs-lfs install
 git reset --hard main
 ```
 
@@ -351,7 +351,7 @@ For this you can use the `git s3 doctor <remote>` command.
 
 The LFS integration stores the file in the bucket defined by the remote URI, under a key `<prefix>/lfs/<oid>`, where oid is the unique identifier assigned by git-lfs to the file.
 
-If an object with the same key already exists, git-lfs-s3 does not upload it again.
+If an object with the same key already exists, gs-lfs does not upload it again.
 
 ### Debugging
 
@@ -369,7 +369,7 @@ GIT_REMOTE_S3_VERBOSE=1 git push origin main
 
 Logs will be put to stderr.
 
-For LFS operations you can enable and disable debug logging via `git-lfs-s3 enable-debug` and `git-lfs-s3 disable-debug` respectively. Logs are put in `.git/lfs/tmp/git-lfs-s3.log` in the repo.
+For LFS operations you can enable and disable debug logging via `gs-lfs enable-debug` and `gs-lfs disable-debug` respectively. Logs are put in `.git/lfs/tmp/gs-lfs.log` in the repo.
 
 ## Credits
 
