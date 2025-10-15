@@ -76,11 +76,7 @@ class LFSProcess:
     def init_s3_bucket(self):
         if self.s3_bucket is not None:
             return
-        if self.profile is None:
-            session = boto3.Session()
-        else:
-            session = boto3.Session(profile_name=self.profile)
-
+        
         # Read the aws server url from git config "lfs.awsendpoint"
         result = subprocess.run(
             ["git", "config", "--get", "lfs.awsendpoint"],
@@ -91,12 +87,109 @@ class LFSProcess:
             raise Exception(f"lfs.awsendpoint isn't specified and cannot read from git config!")
         endpoint = result.stdout.decode("utf-8").strip()
 
+        # Try to get credentials using git credential fill and assume role if available
+        session = self._create_session_with_credentials(endpoint)
+
         # Create the S3 resource with the custom endpoint_url
         if endpoint:
             s3 = session.resource("s3", endpoint_url=endpoint)
         else:
             s3 = session.resource("s3")
         self.s3_bucket = s3.Bucket(self.bucket)
+
+    def _create_session_with_credentials(self, endpoint: str):
+        """Create a boto3 session with credentials from git credential fill or fallback to default."""
+        # Try to get web identity token using git credential fill
+        web_identity_token = self._get_credential_from_git(endpoint)
+        
+        if web_identity_token:
+            # Use assume role with web identity for temporary credentials
+            logger.debug("Using assume role with web identity from git credential")
+            return self._create_session_with_assume_role(endpoint, web_identity_token)
+        else:
+            # Fall back to profile or default credential chain
+            logger.debug("No credential found, falling back to default credential chain")
+            if self.profile is None:
+                return boto3.Session()
+            else:
+                return boto3.Session(profile_name=self.profile)
+
+    def _get_credential_from_git(self, endpoint: str) -> str:
+        """Get web identity token using git credential fill."""
+        try:
+            # Parse the endpoint URL to get protocol and host
+            parsed_endpoint = urlparse(endpoint)
+            protocol = parsed_endpoint.scheme or "https"
+            host = parsed_endpoint.netloc or parsed_endpoint.path
+            
+            # Prepare input for git credential fill
+            credential_input = f"protocol={protocol}\nhost={host}\n\n"
+            
+            # Run git credential fill
+            result = subprocess.run(
+                ["git", "credential", "fill"],
+                input=credential_input,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True
+            )
+            
+            if result.returncode != 0:
+                logger.debug(f"git credential fill failed: {result.stderr}")
+                return None
+            
+            # Parse the output to extract the password (web identity token)
+            output_lines = result.stdout.strip().split('\n')
+            for line in output_lines:
+                if line.startswith('password='):
+                    token = line.split('=', 1)[1]
+                    logger.debug("Successfully retrieved credential from git")
+                    return token
+            
+            logger.debug("No password found in git credential output")
+            return None
+            
+        except Exception as e:
+            logger.error(f"Failed to get credential from git: {e}")
+            return None
+
+    def _create_session_with_assume_role(self, endpoint: str, web_identity_token: str):
+        """Create a boto3 session using assume role with web identity via STS client."""
+        try:
+            # Create STS client with custom endpoint if provided
+            if endpoint:
+                sts_client = boto3.client('sts', endpoint_url=endpoint)
+            else:
+                sts_client = boto3.client('sts')
+            
+            # Call assume_role_with_web_identity
+            response = sts_client.assume_role_with_web_identity(
+                WebIdentityToken=web_identity_token,
+                RoleSessionName='git-remote-s3-lfs-session',
+                DurationSeconds=3600
+            )
+            
+            # Extract credentials from the response
+            credentials = response['Credentials']
+            
+            # Create a new session with the temporary credentials
+            session = boto3.Session(
+                aws_access_key_id=credentials['AccessKeyId'],
+                aws_secret_access_key=credentials['SecretAccessKey'],
+                aws_session_token=credentials['SessionToken']
+            )
+            
+            logger.debug("Successfully created session with temporary credentials via STS client")
+            return session
+            
+        except Exception as e:
+            logger.error(f"Failed to assume role via STS client: {e}")
+            # Fall back to profile or default credential chain
+            logger.debug("Falling back to default credential chain")
+            if self.profile is None:
+                return boto3.Session()
+            else:
+                return boto3.Session(profile_name=self.profile)
 
     def upload(self, event: dict):
         logger.debug("upload")
