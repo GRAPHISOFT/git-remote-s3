@@ -9,6 +9,7 @@ import subprocess
 import boto3
 import threading
 import os
+from typing import Optional
 from .common import parse_git_url
 from .git import validate_ref_name
 from urllib.parse import urlparse
@@ -59,6 +60,27 @@ def write_error_event_with_code(code: int, error_message: str):
     sys.stdout.write(f"{json.dumps(error_event)}\n")
     sys.stdout.flush()
 
+def get_config_value_from_git(key: str) -> Optional[str]:
+    """Get a configuration value from git config."""
+    try:
+        result = subprocess.run(
+            ["git", "config", "--get", key],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True
+        )
+        
+        if result.returncode != 0:
+            logger.debug(f"No value found for git config key: {key}")
+            return None
+        
+        value = result.stdout.strip()
+        logger.debug(f"Found value for git config key {key}: {value}")
+        return value
+    except Exception as e:
+        logger.error(f"Failed to get git config value for key {key}: {e}")
+        return None
+
 
 class LFSProcess:
     def __init__(self, s3uri: str):
@@ -76,16 +98,10 @@ class LFSProcess:
     def init_s3_bucket(self):
         if self.s3_bucket is not None:
             return
-        
-        # Read the aws server url from git config "lfs.awsendpoint"
-        result = subprocess.run(
-            ["git", "config", "--get", "lfs.awsendpoint"],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-        )
-        if result.returncode != 0:
+
+        endpoint = get_config_value_from_git("lfs.awsendpoint")
+        if not endpoint:
             raise Exception(f"lfs.awsendpoint isn't specified and cannot read from git config!")
-        endpoint = result.stdout.decode("utf-8").strip()
 
         # Try to get credentials using git credential fill and assume role if available
         session = self._create_session_with_credentials(endpoint)
@@ -99,13 +115,31 @@ class LFSProcess:
 
     def _create_session_with_credentials(self, endpoint: str):
         """Create a boto3 session with credentials from git credential fill or fallback to default."""
+
+        if self.profile is None:
+            session = boto3.Session()
+        else:
+            session = boto3.Session(profile_name=self.profile)
+
+        # Test to see if credentials are available
+        credentials = session.get_credentials()
+        if credentials and credentials.access_key and credentials.secret_key:
+            logger.debug("Using credentials from profile or default credential chain")
+            return session
+
         # Try to get web identity token using git credential fill
         web_identity_token = self._get_credential_from_git(endpoint)
         
         if web_identity_token:
-            # Use assume role with web identity for temporary credentials
+            # Try to get a RoleARN from git config, if any
+            role_arn = get_config_value_from_git("lfs.rolearn")
+            if role_arn:
+                logger.debug(f"Using role ARN from git config: {role_arn}")
+            else:
+                logger.debug("No role ARN found in git config")
+
             logger.debug("Using assume role with web identity from git credential")
-            return self._create_session_with_assume_role(endpoint, web_identity_token)
+            return self._create_session_with_assume_role(endpoint, web_identity_token, role_arn)
         else:
             # Fall back to profile or default credential chain
             logger.debug("No credential found, falling back to default credential chain")
@@ -114,7 +148,7 @@ class LFSProcess:
             else:
                 return boto3.Session(profile_name=self.profile)
 
-    def _get_credential_from_git(self, endpoint: str) -> str:
+    def _get_credential_from_git(self, endpoint: str) -> Optional[str]:
         """Get web identity token using git credential fill."""
         try:
             # Parse the endpoint URL to get protocol and host
@@ -137,13 +171,11 @@ class LFSProcess:
             if result.returncode != 0:
                 logger.debug(f"git credential fill failed: {result.stderr}")
                 return None
-            
-            # Parse the output to extract the password (web identity token)
+
             output_lines = result.stdout.strip().split('\n')
             for line in output_lines:
                 if line.startswith('password='):
                     token = line.split('=', 1)[1]
-                    logger.debug("Successfully retrieved credential from git")
                     return token
             
             logger.debug("No password found in git credential output")
@@ -153,7 +185,7 @@ class LFSProcess:
             logger.error(f"Failed to get credential from git: {e}")
             return None
 
-    def _create_session_with_assume_role(self, endpoint: str, web_identity_token: str):
+    def _create_session_with_assume_role(self, endpoint: str, web_identity_token: str, role_arn: Optional[str]):
         """Create a boto3 session using assume role with web identity via STS client."""
         try:
             # Create STS client with custom endpoint if provided
@@ -164,6 +196,7 @@ class LFSProcess:
             
             # Call assume_role_with_web_identity
             response = sts_client.assume_role_with_web_identity(
+                RoleArn=role_arn if role_arn else "arn:aws:iam::FakeRoleArn", # Some S3-compatible services may not require a valid RoleArn, but boto3 does
                 WebIdentityToken=web_identity_token,
                 RoleSessionName='git-remote-s3-lfs-session',
                 DurationSeconds=3600
@@ -366,20 +399,14 @@ def main():  # noqa: C901
                 write_error_event_with_code(3, f"invalid ref {event['remote']}")
                 sys.exit(1)
 
-            # try to get lfs.url from config
-            result = subprocess.run(
-                ["git", "config", "--get", "lfs.url"],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-            )
-            if result.returncode != 0: # if lfs.url isn't specified (we try to infer it using remote's url)
+            lfs_url = get_config_value_from_git("lfs.url")
+            if not lfs_url: # if lfs.url isn't specified (we try to infer it using remote's url)
                 s3uri = inferS3Url(event)
             else: # lfs.url was found
-                url_value = result.stdout.decode("utf-8").strip()
-                if url_value == "s3://": # the fake value was provided (we try to infer it using remote's url)
+                if lfs_url == "s3://": # the fake value was provided (we try to infer it using remote's url)
                     s3uri = inferS3Url(event)
                 else: # We have found a valid value in lfs.url
-                    s3uri = url_value
+                    s3uri = lfs_url
             lfs_process = LFSProcess(s3uri=s3uri)
 
         elif event["event"] == "upload":
