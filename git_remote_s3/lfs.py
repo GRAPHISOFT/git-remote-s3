@@ -105,12 +105,7 @@ class LFSProcess:
 
         # Try to get credentials using git credential fill and assume role if available
         session = self._create_session_with_credentials(endpoint)
-
-        # Create the S3 resource with the custom endpoint_url
-        if endpoint:
-            s3 = session.resource("s3", endpoint_url=endpoint)
-        else:
-            s3 = session.resource("s3")
+        s3 = session.resource("s3", endpoint_url=endpoint)
         self.s3_bucket = s3.Bucket(self.bucket)
 
     def _create_session_with_credentials(self, endpoint: str):
@@ -189,10 +184,7 @@ class LFSProcess:
         """Create a boto3 session using assume role with web identity via STS client."""
         try:
             # Create STS client with custom endpoint if provided
-            if endpoint:
-                sts_client = boto3.client('sts', endpoint_url=endpoint)
-            else:
-                sts_client = boto3.client('sts')
+            sts_client = boto3.client('sts', endpoint_url=endpoint)
             
             # Call assume_role_with_web_identity
             response = sts_client.assume_role_with_web_identity(
